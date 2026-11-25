@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Brick Breaker 🚀</title>
+    <style>
+        * { padding: 0; margin: 0; box-sizing: border-box; }
+        body { 
+            background: radial-gradient(circle, #100a1c 0%, #05020a 100%);
+            color: #fff; font-family: 'Segoe UI', Roboto, sans-serif;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            height: 100vh; overflow: hidden;
+        }
+        
+        /* Neon Tabelalar ve Skor Panosu */
+        h1 { 
+            color: #fff; 
+            font-size: 32px; 
+            text-transform: uppercase; 
+            letter-spacing: 3px;
+            margin-bottom: 5px;
+            text-shadow: 0 0 10px #00f0ff, 0 0 20px #00f0ff, 0 0 40px #00f0ff;
+        }
+        
+        .score-board { 
+            display: flex; gap: 30px;
+            font-size: 20px; font-weight: bold; margin-bottom: 20px;
+            background: rgba(255, 255, 255, 0.05); padding: 10px 25px;
+            border-radius: 50px; border: 1px solid rgba(0, 240, 255, 0.3);
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.1);
+        }
+        .score-board .score-val { color: #00f0ff; text-shadow: 0 0 8px #00f0ff; }
+        .score-board .lives-val { color: #ff007f; text-shadow: 0 0 8px #ff007f; }
+        
+        /* Oyun Alanı */
+        canvas { 
+            background: #080511; display: block; 
+            border: 3px solid #ff007f; border-radius: 12px; 
+            box-shadow: 0 0 25px rgba(255, 0, 127, 0.4), inset 0 0 20px rgba(255, 0, 127, 0.2);
+        }
+        
+        .instructions { margin-top: 15px; font-size: 13px; color: #6d5b94; letter-spacing: 1px; }
+
+        /* Başlangıç Ekranı Butonu */
+        #startBtn {
+            position: absolute; padding: 15px 40px; font-size: 20px; font-weight: bold;
+            color: #fff; background: transparent; border: 3px solid #00f0ff;
+            border-radius: 8px; cursor: pointer; text-transform: uppercase; letter-spacing: 2px;
+            text-shadow: 0 0 8px #00f0ff; box-shadow: 0 0 15px rgba(0, 240, 255, 0.4);
+            transition: all 0.3s ease; z-index: 100;
+        }
+        #startBtn:hover {
+            background: #00f0ff; color: #000; box-shadow: 0 0 30px #00f0ff;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>NEON BREAKER</h1>
+    <div class="score-board">
+        <div>SKOR: <span id="score" class="score-val">0</span></div>
+        <div>CAN: <span id="lives" class="lives-val">3</span></div>
+    </div>
+    
+    <button id="startBtn" onclick="startGame()">Oyunu Başlat 🕹️</button>
+    <canvas id="gameCanvas" width="700" height="420"></canvas>
+
+    <div class="instructions">Çubuğu yönlendirmek için fareyi (mouse) sağa sola kaydırın.</div>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+const startBtn = document.getElementById("startBtn");
+
+const scoreDisplay = document.getElementById("score");
+const livesDisplay = document.getElementById("lives");
+
+let score = 0;
+let lives = 3;
+let gameStarted = false;
+
+// Web Audio API ile Ses Efekti Üretici (Dışarıdan dosya yüklemeden ses çalar)
+let audioCtx = null;
+function playHitSound() {
+    if(!audioCtx) return;
+    
+    let oscillator = audioCtx.createOscillator();
+    let gainNode = audioCtx.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    
+    oscillator.type = 'sine'; // Retro yumuşak oyun sesi tonu
+    oscillator.frequency.setValueAtTime(580, audioCtx.currentTime); // Ses frekansı (Nota yüksekliği)
+    oscillator.frequency.exponentialRampToValueAtTime(150, audioCtx.currentTime + 0.1); // Sesin düşüş efekti
+    
+    gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+    
+    oscillator.start();
+    oscillator.stop(audioCtx.currentTime + 0.1);
+}
+
+// Oyunu Başlatma Fonksiyonu
+function startGame() {
+    if(gameStarted) return;
+    // Tarayıcı ses engelini aşmak için Audio Context'i burada tetikliyoruz
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    startBtn.style.display = "none";
+    gameStarted = true;
+    draw();
+}
+
+// Parlayan Neon Top Özellikleri
+let ballRadius = 7;
+let x = canvas.width / 2;
+let y = canvas.height - 30;
+let dx = 5;
+let dy = -5;
+
+// Siber Çubuk Özellikleri
+let paddleHeight = 12;
+let paddleWidth = 110;
+let paddleX = (canvas.width - paddleWidth) / 2;
+
+// Neon Tuğla Özellikleri
+let brickRowCount = 5;
+let brickColumnCount = 9;
+let brickWidth = 66;
+let brickHeight = 18;
+let brickPadding = 8;
+let brickOffsetTop = 40;
+let brickOffsetLeft = 23;
+
+// Katman katman farklı neon renkleri siber punk havası verir
+const neonColors = ["#ff0055", "#00ffcc", "#9900ff", "#ffcc00", "#00ff66"];
+
+let bricks = [];
+for(let c=0; c<brickColumnCount; c++) {
+    bricks[c] = [];
+    for(let r=0; r<brickRowCount; r++) {
+        bricks[c][r] = { x: 0, y: 0, status: 1, color: neonColors[r] };
+    }
+}
+
+// Fare Dinleyicisi
+document.addEventListener("mousemove", mouseMoveHandler, false);
+function mouseMoveHandler(e) {
+    let relativeX = e.clientX - canvas.offsetLeft;
+    if(relativeX > 0 && relativeX < canvas.width) {
+        paddleX = relativeX - paddleWidth / 2;
+    }
+}
+
+// Çarpışma Mekaniği
+function collisionDetection() {
+    for(let c=0; c<brickColumnCount; c++) {
+        for(let r=0; r<brickRowCount; r++) {
+            let b = bricks[c][r];
+            if(b.status == 1) {
+                if(x > b.x && x < b.x+brickWidth && y > b.y && y < b.y+brickHeight) {
+                    dy = -dy;
+                    b.status = 0;
+                    score += 10;
+                    scoreDisplay.innerText = score;
+                    
+                    playHitSound(); // Tuğlaya çarpınca sesi çal
+                    
+                    if(checkWin()) {
+                        alert("SİBER ŞAMPİYON! Tüm rekorları kırdın! Skorun: " + score);
+                        document.location.reload();
+                    }
+                }
+            }
+        }
+    }
+}
+
+function checkWin() {
+    for(let c=0; c<brickColumnCount; c++) {
+        for(let r=0; r<brickRowCount; r++) {
+            if(bricks[c][r].status == 1) return false;
+        }
+    }
+    return true;
+}
+
+// Çizim Aşamaları
+function drawBall() {
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = "#00f0ff";
+    ctx.beginPath();
+    ctx.arc(x, y, ballRadius, 0, Math.PI*2);
+    ctx.fillStyle = "#00f0ff";
+    ctx.fill();
+    ctx.closePath();
+    ctx.shadowBlur = 0; // Diğer çizimlerin parlamasını sıfırla
+}
+
+function drawPaddle() {
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = "#ff007f";
+    ctx.beginPath();
+    ctx.rect(paddleX, canvas.height - paddleHeight, paddleWidth, paddleHeight);
+    ctx.fillStyle = "#ff007f";
+    ctx.fill();
+    ctx.closePath();
+    ctx.shadowBlur = 0;
+}
+
+function drawBricks() {
+    for(let c=0; c<brickColumnCount; c++) {
+        for(let r=0; r<brickRowCount; r++) {
+            if(bricks[c][r].status == 1) {
+                let brickX = (c*(brickWidth+brickPadding))+brickOffsetLeft;
+                let brickY = (r*(brickHeight+brickPadding))+brickOffsetTop;
+                bricks[c][r].x = brickX;
+                bricks[c][r].y = brickY;
+                
+                ctx.shadowBlur = 6;
+                ctx.shadowColor = bricks[c][r].color;
+                ctx.beginPath();
+                ctx.rect(brickX, brickY, brickWidth, brickHeight);
+                ctx.fillStyle = bricks[c][r].color;
+                ctx.fill();
+                ctx.closePath();
+                ctx.shadowBlur = 0;
+            }
+        }
+    }
+}
+
+// Döngü
+function draw() {
+    if(!gameStarted) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawBricks();
+    drawBall();
+    drawPaddle();
+    collisionDetection();
+    
+    if(x + dx > canvas.width-ballRadius || x + dx < ballRadius) {
+        dx = -dx;
+    }
+    if(y + dy < ballRadius) {
+        dy = -dy;
+    } else if(y + dy > canvas.height-ballRadius) {
+        if(x > paddleX && x < paddleX + paddleWidth) {
+            let collidePoint = x - (paddleX + paddleWidth / 2);
+            collidePoint = collidePoint / (paddleWidth / 2);
+            let angle = collidePoint * (Math.PI / 3);
+            
+            dx = 6 * Math.sin(angle);
+            dy = -6 * Math.cos(angle);
+        }
+        else {
+            lives--;
+            livesDisplay.innerText = lives;
+            if(!lives) {
+                alert("GAME OVER! Siber uzayda kayboldun.");
+                document.location.reload();
+            }
+            else {
+                x = canvas.width/2;
+                y = canvas.height-30;
+                dx = 5;
+                dy = -5;
+                paddleX = (canvas.width-paddleWidth)/2;
+            }
+        }
+    }
+    
+    x += dx;
+    y += dy;
+    requestAnimationFrame(draw);
+}
+</script>
+
+</body>
+</html>
